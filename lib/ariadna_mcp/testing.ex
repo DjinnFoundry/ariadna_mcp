@@ -92,8 +92,8 @@ defmodule AriadnaMCP.Testing do
   @spec undeclared_paths(term(), map()) :: [String.t()]
   def undeclared_paths(nil, _schema), do: []
 
-  def undeclared_paths(value, %{"oneOf" => branches}),
-    do: undeclared_paths(value, Enum.find(branches, &(&1["type"] != "null")))
+  def undeclared_paths(value, %{"oneOf" => branches}), do: undeclared_in_branches(value, branches)
+  def undeclared_paths(value, %{"anyOf" => branches}), do: undeclared_in_branches(value, branches)
 
   def undeclared_paths(value, %{"type" => "array", "items" => items}) when is_list(value),
     do: Enum.flat_map(value, &undeclared_paths(&1, items))
@@ -108,6 +108,10 @@ defmodule AriadnaMCP.Testing do
   end
 
   def undeclared_paths(_value, _schema), do: []
+
+  # Nullable fields: Peri advertises oneOf, Zoi anyOf; check the non-null branch.
+  defp undeclared_in_branches(value, branches),
+    do: undeclared_paths(value, Enum.find(branches, &(&1["type"] != "null")))
 
   defp put_meta(params, opts) do
     meta =
