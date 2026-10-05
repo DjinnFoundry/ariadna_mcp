@@ -26,10 +26,15 @@ if Code.ensure_loaded?(Jido.Action.Schema) do
       * `:scope`, `:write`, `:title`, `:annotations` - as in `AriadnaMCP.Tool`.
       * `:context` - `AriadnaMCP.Context -> map` for the action's context;
         defaults to `%{mcp: context}`.
-      * `:exec` - options for `Jido.Exec.run/4`, such as `timeout:`.
+      * `:exec` - options for `Jido.Exec.run/4`, such as `timeout:`. Defaults:
+        `max_retries: 0` (retrying is the MCP client's decision, and a retried
+        write or AI call costs twice) and `log_level: :critical` (a domain error
+        is an answer, not a server error; exceptions are reported by the server).
     """
 
     @behaviour AriadnaMCP.Schema.Adapter
+
+    @default_exec [max_retries: 0, log_level: :critical]
 
     alias AriadnaMCP.Tool
     alias Jido.Action.Schema, as: JidoSchema
@@ -38,7 +43,7 @@ if Code.ensure_loaded?(Jido.Action.Schema) do
     @spec tool(module(), keyword()) :: Tool.t()
     def tool(action, opts \\ []) when is_atom(action) do
       context_fun = Keyword.get(opts, :context, &__MODULE__.default_context/1)
-      exec_opts = Keyword.get(opts, :exec, [])
+      exec_opts = Keyword.merge(@default_exec, Keyword.get(opts, :exec, []))
 
       %Tool{
         name: action.name(),

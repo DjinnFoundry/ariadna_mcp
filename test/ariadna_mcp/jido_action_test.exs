@@ -118,6 +118,25 @@ defmodule AriadnaMCP.JidoActionTest do
     assert_received {:reported, "SELECT secret FROM users failed", %{tool: "raising"}}
   end
 
+  test "actions are not retried by default" do
+    defmodule CountingFailure do
+      @moduledoc false
+      use Jido.Action, name: "counting_failure", description: "Counts its runs and fails"
+      @impl true
+      def run(_params, %{mcp: context}) do
+        send(context.assigns.test_pid, :ran)
+        {:error, "no"}
+      end
+    end
+
+    tool = AriadnaMCP.JidoAction.tool(CountingFailure)
+    context = %AriadnaMCP.Context{assigns: %{test_pid: self()}}
+
+    assert {:error, "no"} = AriadnaMCP.Tool.run(tool, %{}, context)
+    assert_received :ran
+    refute_receive :ran, 200
+  end
+
   test "a result that breaks a Zoi output schema is an internal error" do
     defmodule Broken do
       @moduledoc false
