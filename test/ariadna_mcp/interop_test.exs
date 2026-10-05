@@ -29,6 +29,8 @@ defmodule AriadnaMCP.InteropTest do
           url: url,
           protocol_mode: unquote(mode),
           reconnect: false,
+          # ExMCP caches each endpoint's era; a reused port must not inherit it.
+          reset_era_cache: true,
           health_check_interval: 0
         )
 
@@ -67,6 +69,8 @@ defmodule AriadnaMCP.InteropTest do
         url: url,
         protocol_mode: :prefer_modern,
         reconnect: false,
+        # ExMCP caches each endpoint's era; a reused port must not inherit it.
+        reset_era_cache: true,
         health_check_interval: 0
       )
 
