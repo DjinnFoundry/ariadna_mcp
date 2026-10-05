@@ -58,16 +58,27 @@ if Code.ensure_loaded?(Jido.Action.Schema) do
     @doc false
     def default_context(context), do: %{mcp: context}
 
-    @doc "Runs an action with already validated arguments."
+    @doc """
+    Runs an action with already validated arguments. An exception raised by the
+    action is raised again, so the server reports it and the client only sees
+    `internal_error`: Jido would otherwise return its message.
+    """
     @spec run(module(), map(), map(), keyword()) :: Tool.result()
     def run(action, arguments, context, exec_opts \\ []) do
       case Jido.Exec.run(action, arguments, context, exec_opts) do
         {:ok, result} -> {:ok, result}
         {:ok, result, _directives} -> {:ok, result}
-        {:error, error} -> {:error, message(error)}
-        {:error, error, _directives} -> {:error, message(error)}
+        {:error, error} -> error(error)
+        {:error, error, _directives} -> error(error)
       end
     end
+
+    defp error(%{details: %{original_exception: exception} = details})
+         when is_exception(exception),
+         do: reraise(exception, Map.get(details, :stacktrace, []))
+
+    defp error(%Jido.Action.Error.InternalError{}), do: {:error, "internal_error"}
+    defp error(error), do: {:error, message(error)}
 
     @impl AriadnaMCP.Schema.Adapter
     def to_json_schema(schema) do

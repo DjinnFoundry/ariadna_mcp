@@ -1,5 +1,5 @@
 defmodule AriadnaMCP.JidoActionTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   import AriadnaMCP.Testing
 
@@ -106,6 +106,16 @@ defmodule AriadnaMCP.JidoActionTest do
              call_tool!(JidoServer, "search_library", %{"query" => "x"},
                client: %{name: "nobody", scopes: []}
              )
+  end
+
+  test "an exception in an action is reported and never reaches the client" do
+    Application.put_env(:ariadna_mcp, :jido_test_pid, self())
+    on_exit(fn -> Application.delete_env(:ariadna_mcp, :jido_test_pid) end)
+
+    assert %{"isError" => true, "content" => [%{"text" => "internal_error"}]} =
+             call_tool!(JidoServer, "raising")
+
+    assert_received {:reported, "SELECT secret FROM users failed", %{tool: "raising"}}
   end
 
   test "a result that breaks a Zoi output schema is an internal error" do

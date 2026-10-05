@@ -46,6 +46,14 @@ defmodule AriadnaMCP.TestActions do
       do: {:ok, %{status: "#{year}-Q#{quarter} open", internal: %{debug: true}}}
   end
 
+  defmodule Raising do
+    @moduledoc false
+    use Jido.Action, name: "raising", description: "Raises with internal details"
+
+    @impl true
+    def run(_params, _context), do: raise("SELECT secret FROM users failed")
+  end
+
   defmodule Failing do
     @moduledoc false
     use Jido.Action, name: "failing", description: "Always fails"
@@ -69,11 +77,20 @@ defmodule AriadnaMCP.JidoServer do
     [
       JidoAction.tool(TestActions.Search, scope: "read", context: &__MODULE__.action_context/1),
       JidoAction.tool(TestActions.Quarter, title: "Quarter"),
-      JidoAction.tool(TestActions.Failing, write: true)
+      JidoAction.tool(TestActions.Failing, write: true),
+      JidoAction.tool(TestActions.Raising)
     ]
   end
 
   def action_context(%Context{client_name: name}), do: %{client_name: name}
+
+  @impl true
+  def report_exception(exception, _stacktrace, metadata) do
+    if pid = Application.get_env(:ariadna_mcp, :jido_test_pid),
+      do: send(pid, {:reported, Exception.message(exception), metadata})
+
+    :ok
+  end
 
   @impl true
   def enabled_write_tools, do: :all
