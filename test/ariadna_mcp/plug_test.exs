@@ -100,6 +100,9 @@ defmodule AriadnaMCP.PlugTest do
     message = %{"jsonrpc" => "2.0", "id" => 1, "method" => "initialize", "params" => %{}}
 
     assert post_message(message, [{"origin", "https://evil.example"}]).status == 403
+    assert post_message(message, [{"origin", "null"}]).status == 403
+    # Plug.Test requests come from host "www.example.com": same host passes by default.
+    assert post_message(message, [{"origin", "https://www.example.com:8443"}]).status == 200
 
     allowed = AriadnaMCP.Plug.init(server: TestServer, allowed_origins: ["https://app.example"])
     assert post_message(message, [{"origin", "https://app.example"}], allowed).status == 200

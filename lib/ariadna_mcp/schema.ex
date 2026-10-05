@@ -18,10 +18,27 @@ defmodule AriadnaMCP.Schema do
       )
   """
 
-  @type t :: map()
+  @typedoc "A Peri schema."
+  @type peri :: map()
+
+  @typedoc "A Peri schema, or `{adapter, schema}` for another schema library."
+  @type t :: peri() | {module(), term()}
+
+  defmodule Adapter do
+    @moduledoc """
+    A schema library other than Peri. A tool schema written as
+    `{adapter, schema}` is advertised, validated and projected by the adapter;
+    see `AriadnaMCP.JidoAction` for `Jido.Action` schemas (Zoi or NimbleOptions).
+    """
+
+    @callback to_json_schema(schema :: term()) :: map()
+    @callback validate(schema :: term(), arguments :: map()) ::
+                {:ok, map()} | {:error, String.t()}
+    @callback project(schema :: term(), result :: term()) :: {:ok, map()} | {:error, String.t()}
+  end
 
   @doc "Builds an input schema from properties, marking the `:required` keys."
-  @spec object(map(), keyword()) :: t()
+  @spec object(map(), keyword()) :: peri()
   def object(properties, opts \\ []) when is_map(properties) do
     required = Keyword.get(opts, :required, [])
 
@@ -55,7 +72,7 @@ defmodule AriadnaMCP.Schema do
   Makes every field of an output schema nullable, recursively, so results with
   `nil` values validate and the advertised JSON Schema allows `null`.
   """
-  @spec nullable(t()) :: t()
+  @spec nullable(peri()) :: peri()
   def nullable(fields) when is_map(fields),
     do: Map.new(fields, fn {key, type} -> {key, {:either, {nullable_type(type), nil}}} end)
 
@@ -65,10 +82,14 @@ defmodule AriadnaMCP.Schema do
 
   @doc "The JSON Schema advertised for a Peri schema."
   @spec to_json_schema(t()) :: map()
+  def to_json_schema({adapter, schema}) when is_atom(adapter), do: adapter.to_json_schema(schema)
   def to_json_schema(schema), do: Peri.to_json_schema(schema)
 
   @doc "Validates arguments, returning only the declared keys."
   @spec validate(t(), map()) :: {:ok, map()} | {:error, String.t()}
+  def validate({adapter, schema}, arguments) when is_atom(adapter) and is_map(arguments),
+    do: adapter.validate(schema, arguments)
+
   def validate(schema, arguments) when is_map(arguments) do
     case Peri.validate(schema, arguments) do
       {:ok, valid} -> {:ok, valid}
@@ -83,6 +104,9 @@ defmodule AriadnaMCP.Schema do
   only the fields the schema declares, at every depth.
   """
   @spec project(t(), term()) :: {:ok, map()} | {:error, String.t()}
+  def project({adapter, schema}, result) when is_atom(adapter),
+    do: adapter.project(schema, result)
+
   def project(schema, result) do
     json = result |> Jason.encode!() |> Jason.decode!()
 

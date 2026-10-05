@@ -51,3 +51,26 @@ defmodule AriadnaMCP.TestingTest do
     assert %{"params" => %{}} = Testing.request("tools/list", %{}, version: "2025-06-18")
   end
 end
+
+defmodule AriadnaMCPTest do
+  use ExUnit.Case, async: true
+
+  alias AriadnaMCP.{Context, TestServer}
+
+  test "handle/3 answers one message" do
+    message = AriadnaMCP.Testing.request("tools/list")
+
+    assert {200, %{"result" => %{"tools" => [_ | _]}}} =
+             AriadnaMCP.handle(TestServer, message, %Context{})
+  end
+
+  test "progress is a no-op without a progress function and sends params with one" do
+    assert :ok = Context.progress(%Context{}, 1)
+
+    context = %Context{progress_token: "t", progress_fun: &send(self(), {:progress, &1})}
+    assert :ok = Context.progress(context, 2, total: 4, message: "half")
+
+    assert_received {:progress,
+                     %{"progressToken" => "t", "progress" => 2, "total" => 4, "message" => "half"}}
+  end
+end

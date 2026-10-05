@@ -63,6 +63,33 @@ scope "/api" do
 end
 ```
 
+## Jido actions as tools
+
+With `jido_action` installed, a `Jido.Action` is served as an MCP tool, so one
+action backs an in-process agent (`jido_ai`), the MCP server and the UI:
+
+```elixir
+def tools do
+  [
+    AriadnaMCP.JidoAction.tool(MyApp.Actions.SearchLibrary,
+      scope: "read:library",
+      context: &MyApp.MCP.action_context/1
+    )
+  ]
+end
+```
+
+MCP arguments arrive with string keys and are converted to the schema's atom
+keys before validation. Results are projected onto the action's
+`output_schema` by AriadnaMCP itself: Jido lets undeclared top-level keys
+through. Declare output schemas with Zoi to strip undeclared fields at every
+depth.
+
+## Interoperability
+
+The test suite runs a real MCP client (ExMCP) against `AriadnaMCP.Plug` over
+HTTP in both eras.
+
 ## Status
 
 Private, used by Balneario de Cofrentes and DjinnFoundry products. Not yet

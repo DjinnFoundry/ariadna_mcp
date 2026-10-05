@@ -1,7 +1,7 @@
 defmodule AriadnaMCP.MixProject do
   use Mix.Project
 
-  @version "0.1.0"
+  @version "0.2.0"
   @source_url "https://github.com/DjinnFoundry/ariadna_mcp"
 
   def project do
@@ -32,6 +32,9 @@ defmodule AriadnaMCP.MixProject do
       {:plug, "~> 1.16"},
       {:jason, "~> 1.4"},
       {:telemetry, "~> 1.2"},
+      {:jido_action, "~> 2.3", optional: true},
+      {:ex_mcp, "~> 1.5", only: :test},
+      {:bandit, "~> 1.12", only: :test},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false}
     ]

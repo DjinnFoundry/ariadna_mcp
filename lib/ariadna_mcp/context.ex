@@ -47,6 +47,7 @@ defmodule AriadnaMCP.Context do
       |> put_present("message", opts[:message])
 
     fun.(params)
+    :ok
   end
 
   defp put_present(map, _key, nil), do: map

@@ -36,6 +36,18 @@ defmodule AriadnaMCP.Protocol do
 
   @named_methods %{"tools/call" => "name", "resources/read" => "uri", "prompts/get" => "name"}
 
+  # Modern results that clients may cache: {ttlMs, cacheScope}. Lists are the
+  # same for every client (write tools are gated per server, not per client);
+  # resource contents depend on the client's scopes and are not cached.
+  @cache_hints %{
+    "server/discover" => {3_600_000, "public"},
+    "tools/list" => {300_000, "public"},
+    "prompts/list" => {300_000, "public"},
+    "resources/list" => {300_000, "public"},
+    "resources/templates/list" => {300_000, "public"},
+    "resources/read" => {0, "private"}
+  }
+
   @typedoc "Transport headers mirrored from the body; `nil` when not over HTTP."
   @type headers :: %{
           protocol_version: String.t() | nil,
@@ -147,7 +159,7 @@ defmodule AriadnaMCP.Protocol do
     params = message["params"] || %{}
 
     case respond(server, method, params, context) do
-      {:result, result} -> {200, result_response(server, id, result, context)}
+      {:result, result} -> {200, result_response(server, id, method, result, context)}
       {:error, code, text} -> {status_for(code, context), error_response(id, code, text)}
     end
   end
@@ -172,12 +184,7 @@ defmodule AriadnaMCP.Protocol do
     info = server.info()
 
     {:result,
-     %{
-       "supportedVersions" => @supported_versions,
-       "capabilities" => capabilities(server),
-       "ttlMs" => 3_600_000,
-       "cacheScope" => "public"
-     }
+     %{"supportedVersions" => @supported_versions, "capabilities" => capabilities(server)}
      |> put_present("instructions", info[:instructions])}
   end
 
@@ -347,17 +354,23 @@ defmodule AriadnaMCP.Protocol do
     |> put_if(server.prompts() != [], "prompts", %{"listChanged" => false})
   end
 
-  defp result_response(server, id, result, %Context{era: :modern}) do
+  defp result_response(server, id, method, result, %Context{era: :modern}) do
     result =
       result
       |> Map.put("resultType", "complete")
       |> Map.put("_meta", %{@server_info_key => server_info(server.info())})
+      |> put_cache_hints(@cache_hints[method])
 
     %{"jsonrpc" => "2.0", "id" => id, "result" => result}
   end
 
-  defp result_response(_server, id, result, _context),
+  defp result_response(_server, id, _method, result, _context),
     do: %{"jsonrpc" => "2.0", "id" => id, "result" => result}
+
+  defp put_cache_hints(result, nil), do: result
+
+  defp put_cache_hints(result, {ttl, scope}),
+    do: Map.merge(result, %{"ttlMs" => ttl, "cacheScope" => scope})
 
   defp error_response(id, code, message),
     do: %{"jsonrpc" => "2.0", "id" => id, "error" => %{"code" => code, "message" => message}}

@@ -58,6 +58,20 @@ defmodule AriadnaMCP.ProtocolTest do
       assert %{"ttlMs" => _, "cacheScope" => "public", "capabilities" => %{"tools" => _}} = result
     end
 
+    test "cacheable results carry ttlMs and cacheScope; legacy results do not" do
+      for method <- ~w(tools/list prompts/list resources/list resources/templates/list) do
+        assert %{"ttlMs" => 300_000, "cacheScope" => "public"} = result!(TestServer, method),
+               method
+      end
+
+      assert %{"ttlMs" => 0, "cacheScope" => "private"} =
+               result!(TestServer, "resources/read", %{"uri" => "note://1"}, client: @reader)
+
+      refute Map.has_key?(call_tool!(TestServer, "plain"), "ttlMs")
+      assert {200, %{"result" => legacy}} = call(TestServer, legacy("tools/list"))
+      refute Map.has_key?(legacy, "ttlMs")
+    end
+
     test "every result carries resultType and serverInfo" do
       assert %{
                "resultType" => "complete",

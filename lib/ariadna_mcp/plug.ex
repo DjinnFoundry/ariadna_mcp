@@ -23,9 +23,10 @@ defmodule AriadnaMCP.Plug do
 
   Pass functions as remote captures (`&MyApp.MCP.client_name/1`): Phoenix runs
   `init/1` at compile time and cannot embed anonymous functions.
-    * `:allowed_origins` - `:any` or a list. A request with an `Origin` header
-      outside the list gets 403 (DNS rebinding protection). Defaults to `[]`:
-      CLI clients send no `Origin`; browsers must be allowed explicitly.
+    * `:allowed_origins` - DNS rebinding protection for requests that carry an
+      `Origin` header: `:same_origin` (default) accepts an origin whose host is
+      the request's own `Host`; a list accepts those origins as well; `:any`
+      accepts all. Anything else gets 403. Requests without `Origin` pass.
     * `:keepalive` - milliseconds between SSE keep-alive comments (15 000).
   """
 
@@ -44,7 +45,7 @@ defmodule AriadnaMCP.Plug do
       client: Keyword.get(opts, :client, &__MODULE__.current_client/1),
       client_name: Keyword.get(opts, :client_name, &__MODULE__.client_name/1),
       assigns: Keyword.get(opts, :assigns, &__MODULE__.no_assigns/1),
-      allowed_origins: Keyword.get(opts, :allowed_origins, []),
+      allowed_origins: Keyword.get(opts, :allowed_origins, :same_origin),
       keepalive: Keyword.get(opts, :keepalive, @keepalive)
     }
   end
@@ -161,9 +162,22 @@ defmodule AriadnaMCP.Plug do
   defp check_origin(conn, %{allowed_origins: allowed}) do
     case get_req_header(conn, "origin") do
       [] -> :ok
-      [_origin] when allowed == :any -> :ok
-      [origin] -> if origin in allowed, do: :ok, else: forbidden_origin(conn)
+      [origin] -> if origin_allowed?(conn, origin, allowed), do: :ok, else: forbidden_origin(conn)
       _many -> forbidden_origin(conn)
+    end
+  end
+
+  defp origin_allowed?(_conn, _origin, :any), do: true
+  defp origin_allowed?(conn, origin, :same_origin), do: same_host?(conn, origin)
+
+  defp origin_allowed?(conn, origin, allowed) when is_list(allowed),
+    do: origin in allowed or same_host?(conn, origin)
+
+  # The host, not the port: behind a proxy the app's port is not the public one.
+  defp same_host?(conn, origin) do
+    case URI.parse(origin) do
+      %URI{host: host} when is_binary(host) -> String.downcase(host) == String.downcase(conn.host)
+      _invalid -> false
     end
   end
 
