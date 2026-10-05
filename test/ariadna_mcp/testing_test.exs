@@ -43,6 +43,25 @@ defmodule AriadnaMCP.TestingTest do
            |> Enum.sort() == ["extra", "items.secret", "plan.owner"]
   end
 
+  test "undeclared_paths follows Zoi's anyOf for nullable fields" do
+    schema = %{
+      "properties" => %{
+        "plan" => %{
+          "anyOf" => [
+            %{"type" => "null"},
+            %{"type" => "object", "properties" => %{"name" => %{}}}
+          ]
+        }
+      }
+    }
+
+    assert Testing.undeclared_paths(%{"plan" => nil}, schema) == []
+
+    assert Testing.undeclared_paths(%{"plan" => %{"name" => "x", "owner" => "y"}}, schema) == [
+             "plan.owner"
+           ]
+  end
+
   test "result! raises on errors and request builds legacy messages" do
     assert_raise RuntimeError, ~r/expected a result/, fn ->
       Testing.result!(TestServer, "nope")
