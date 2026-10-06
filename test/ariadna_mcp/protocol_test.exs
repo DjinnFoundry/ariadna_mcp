@@ -59,10 +59,13 @@ defmodule AriadnaMCP.ProtocolTest do
     end
 
     test "cacheable results carry ttlMs and cacheScope; legacy results do not" do
-      for method <- ~w(tools/list prompts/list resources/list resources/templates/list) do
+      for method <- ~w(prompts/list resources/list resources/templates/list) do
         assert %{"ttlMs" => 300_000, "cacheScope" => "public"} = result!(TestServer, method),
                method
       end
+
+      # tools/list depends on the client's scopes.
+      assert %{"ttlMs" => 300_000, "cacheScope" => "private"} = result!(TestServer, "tools/list")
 
       assert %{"ttlMs" => 0, "cacheScope" => "private"} =
                result!(TestServer, "resources/read", %{"uri" => "note://1"}, client: @reader)
@@ -155,7 +158,10 @@ defmodule AriadnaMCP.ProtocolTest do
   describe "tools" do
     test "tools/list serves read tools and only the enabled write tools" do
       names = fn ->
-        TestServer |> result!("tools/list") |> Map.fetch!("tools") |> Enum.map(& &1["name"])
+        TestServer
+        |> result!("tools/list", %{}, client: @writer)
+        |> Map.fetch!("tools")
+        |> Enum.map(& &1["name"])
       end
 
       refute "write_note" in names.()
@@ -165,10 +171,34 @@ defmodule AriadnaMCP.ProtocolTest do
       assert "write_note" in names.()
     end
 
+    test "tools/list hides the tools the client's scopes do not allow" do
+      Application.put_env(:ariadna_mcp, :enabled_write_tools, :all)
+
+      names = fn client ->
+        TestServer
+        |> result!("tools/list", %{}, client: client)
+        |> Map.fetch!("tools")
+        |> Enum.map(& &1["name"])
+      end
+
+      assert "echo" in names.(@reader)
+      refute "write_note" in names.(@reader)
+      refute "admin_only" in names.(@reader)
+      assert "write_note" in names.(@writer)
+      assert "admin_only" in names.(%{name: "admin", scopes: ["admin"]})
+
+      unscoped = names.(nil)
+      assert "plain" in unscoped
+      refute "echo" in unscoped
+
+      # Listing is not an access attempt.
+      refute_received {:audit, :scope_denied, _, _, _}
+    end
+
     test "advertises input and output schemas as JSON Schema" do
       echo =
         TestServer
-        |> result!("tools/list")
+        |> result!("tools/list", %{}, client: @reader)
         |> Map.fetch!("tools")
         |> Enum.find(&(&1["name"] == "echo"))
 
@@ -202,6 +232,22 @@ defmodule AriadnaMCP.ProtocolTest do
                result = call_tool!(TestServer, "plain")
 
       refute Map.has_key?(result, "structuredContent")
+    end
+
+    test "returns structuredContent for an object result without an output schema" do
+      result = call_tool!(TestServer, "unschemed")
+
+      assert result["structuredContent"] == %{"count" => 2, "items" => ["a", "b"]}
+      assert Jason.decode!(hd(result["content"])["text"]) == result["structuredContent"]
+      assert result["isError"] == false
+    end
+
+    test "a structured error is returned as structuredContent with isError" do
+      result = call_tool!(TestServer, "fails_structured")
+
+      assert result["isError"] == true
+      assert result["structuredContent"] == %{"error" => "invalid_quarter", "quarter" => 8}
+      assert Jason.decode!(hd(result["content"])["text"]) == result["structuredContent"]
     end
 
     test "invalid arguments are a protocol error" do
@@ -347,6 +393,35 @@ defmodule AriadnaMCP.ProtocolTest do
                  call(TestServer, request("prompts/get", %{"name" => name}), client: client),
                name
       end
+    end
+  end
+
+  describe "a server without prompts or resources" do
+    defmodule ToolsOnly do
+      @moduledoc false
+      use AriadnaMCP.Server
+      @impl true
+      def info, do: %{name: "ToolsOnly", version: "0"}
+      @impl true
+      def tools, do: []
+      @impl true
+      def authorize(_context, _scope), do: :ok
+    end
+
+    test "answers Method not found for the capabilities it does not offer" do
+      for method <-
+            ~w(prompts/list prompts/get resources/list resources/templates/list resources/read) do
+        assert {404, %{"error" => %{"code" => -32_601}}} =
+                 call(ToolsOnly, request(method, %{"name" => "x", "uri" => "x://1"})),
+               method
+
+        assert {200, %{"error" => %{"code" => -32_601, "message" => "Method not found"}}} =
+                 call(ToolsOnly, legacy(method, %{"name" => "x", "uri" => "x://1"})),
+               method
+      end
+
+      assert %{"capabilities" => capabilities} = result!(ToolsOnly, "server/discover")
+      assert Map.keys(capabilities) == ["tools"]
     end
   end
 

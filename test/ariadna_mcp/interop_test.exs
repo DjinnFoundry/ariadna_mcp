@@ -44,7 +44,7 @@ defmodule AriadnaMCP.InteropTest do
       refute "write_note" in names
 
       if unquote(mode) == :modern_only do
-        assert list.ttlMs == 300_000 and list.cacheScope == "public"
+        assert list.ttlMs == 300_000 and list.cacheScope == "private"
       end
 
       assert {:ok, %ExMCP.Response{} = result} =

@@ -3,7 +3,7 @@ defmodule AriadnaMCP.Testing do
   Helpers for testing a server the way a client uses it.
 
       test "tools/list matches the snapshot" do
-        assert AriadnaMCP.Testing.snapshot(MyApp.MCP) == File.read!("test/support/mcp_tools.json")
+        assert AriadnaMCP.Testing.snapshot(MyApp.MCP, client: admin) == File.read!("test/support/mcp_tools.json")
       end
 
       test "search returns only declared fields" do
@@ -72,14 +72,16 @@ defmodule AriadnaMCP.Testing do
     do: result!(server, "tools/call", %{"name" => name, "arguments" => arguments}, opts)
 
   @doc """
-  The served `tools/list` as pretty JSON with sorted keys, for a versioned
-  snapshot: a changed description or schema changes what agents do and should
-  show up in review.
+  The `tools/list` served to a client (`client:`, as in `call/3`) as pretty
+  JSON with sorted keys, for a versioned snapshot: a changed description or
+  schema changes what agents do and should show up in review. The list holds
+  only the tools the client's scopes allow, so snapshot with a client that
+  holds every scope.
   """
-  @spec snapshot(module()) :: String.t()
-  def snapshot(server) do
+  @spec snapshot(module(), keyword()) :: String.t()
+  def snapshot(server, opts \\ []) do
     server
-    |> result!("tools/list")
+    |> result!("tools/list", %{}, opts)
     |> Map.fetch!("tools")
     |> sort_keys()
     |> Jason.encode!(pretty: true)

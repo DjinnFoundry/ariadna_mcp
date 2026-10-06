@@ -5,7 +5,9 @@ defmodule AriadnaMCP.Tool do
     * `:name` and `:description` are what the model reads to decide when to call it.
     * `:handler` is `{module, function}` or a 2-arity function, called with the
       validated arguments and the `AriadnaMCP.Context`; it returns
-      `{:ok, result}` or `{:error, message}`.
+      `{:ok, result}` or `{:error, reason}`. An object result or reason
+      reaches the client as `structuredContent` and as its JSON text; a
+      string as text only.
     * `:scope` is passed to the server's `c:AriadnaMCP.Server.authorize/2`; `nil`
       means no authorization check.
     * `:write` marks tools that change data: they are served only when the
@@ -29,7 +31,7 @@ defmodule AriadnaMCP.Tool do
   ]
 
   @type handler :: {module(), atom()} | (map(), AriadnaMCP.Context.t() -> result())
-  @type result :: {:ok, term()} | {:error, String.t()}
+  @type result :: {:ok, term()} | {:error, String.t() | map()}
   @type t :: %__MODULE__{
           name: String.t(),
           title: String.t() | nil,

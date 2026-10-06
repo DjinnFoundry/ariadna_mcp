@@ -34,11 +34,18 @@ defmodule AriadnaMCP.Server do
   @doc "Name, version and optional instructions for the model."
   @callback info() :: info()
 
-  @doc "Every tool in the catalog; write tools are filtered by `c:enabled_write_tools/0`."
+  @doc """
+  Every tool in the catalog. Write tools are filtered by
+  `c:enabled_write_tools/0`, and `tools/list` shows each client only the tools
+  `c:authorize/2` allows it.
+  """
   @callback tools() :: [Tool.t()]
 
-  @doc "Allows or denies a scope for the request's client. `nil` scopes are never checked."
-  @callback authorize(Context.t(), scope :: term()) :: :ok | {:error, String.t()}
+  @doc """
+  Allows or denies a scope for the request's client. `nil` scopes are never
+  checked. A tool call denied with a map gets it as `structuredContent`.
+  """
+  @callback authorize(Context.t(), scope :: term()) :: :ok | {:error, String.t() | map()}
 
   @doc "Write tools served: `:all` or a list of tool names. Default: none."
   @callback enabled_write_tools() :: :all | [String.t()]

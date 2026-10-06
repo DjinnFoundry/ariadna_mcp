@@ -36,12 +36,21 @@ defmodule AriadnaMCP.Protocol do
 
   @named_methods %{"tools/call" => "name", "resources/read" => "uri", "prompts/get" => "name"}
 
-  # Modern results that clients may cache: {ttlMs, cacheScope}. Lists are the
-  # same for every client (write tools are gated per server, not per client);
-  # resource contents depend on the client's scopes and are not cached.
+  # Methods that exist only when the server advertises their capability.
+  @capability_methods %{
+    "resources/list" => "resources",
+    "resources/templates/list" => "resources",
+    "resources/read" => "resources",
+    "prompts/list" => "prompts",
+    "prompts/get" => "prompts"
+  }
+
+  # Modern results that clients may cache: {ttlMs, cacheScope}. tools/list
+  # shows only what the client's scopes allow, so it is private; resource
+  # contents depend on the client's scopes and are not cached.
   @cache_hints %{
     "server/discover" => {3_600_000, "public"},
-    "tools/list" => {300_000, "public"},
+    "tools/list" => {300_000, "private"},
     "prompts/list" => {300_000, "public"},
     "resources/list" => {300_000, "public"},
     "resources/templates/list" => {300_000, "public"},
@@ -188,8 +197,14 @@ defmodule AriadnaMCP.Protocol do
      |> put_present("instructions", info[:instructions])}
   end
 
-  defp respond(server, "tools/list", _params, _context),
-    do: {:result, %{"tools" => Enum.map(Server.served_tools(server), &Tool.definition/1)}}
+  defp respond(server, "tools/list", _params, context) do
+    tools =
+      for tool <- Server.served_tools(server),
+          permitted?(server, context, tool.scope),
+          do: Tool.definition(tool)
+
+    {:result, %{"tools" => tools}}
+  end
 
   defp respond(server, "tools/call", %{"name" => name} = params, context) do
     case Server.served_tool(server, name) do
@@ -198,27 +213,39 @@ defmodule AriadnaMCP.Protocol do
     end
   end
 
-  defp respond(_server, "resources/list", _params, _context), do: {:result, %{"resources" => []}}
-
-  defp respond(server, "resources/templates/list", _params, _context) do
-    templates = Enum.map(server.resource_templates(), &ResourceTemplate.definition/1)
-    {:result, %{"resourceTemplates" => templates}}
+  # A method of a capability the server does not advertise does not exist for
+  # its clients.
+  defp respond(server, method, params, context) when is_map_key(@capability_methods, method) do
+    if Map.has_key?(capabilities(server), @capability_methods[method]),
+      do: respond_offered(server, method, params, context),
+      else: {:error, @method_not_found, "Method not found"}
   end
-
-  defp respond(server, "resources/read", %{"uri" => uri}, context) when is_binary(uri),
-    do: read_resource(server, uri, context)
-
-  defp respond(server, "prompts/list", _params, _context),
-    do: {:result, %{"prompts" => Enum.map(server.prompts(), &Prompt.definition/1)}}
-
-  defp respond(server, "prompts/get", %{"name" => name} = params, context),
-    do: get_prompt(server, name, params["arguments"] || %{}, context)
 
   defp respond(_server, method, _params, _context) when is_map_key(@named_methods, method),
     do: {:error, @invalid_params, "Invalid params"}
 
   defp respond(_server, _method, _params, _context),
     do: {:error, @method_not_found, "Method not found"}
+
+  defp respond_offered(_server, "resources/list", _params, _context),
+    do: {:result, %{"resources" => []}}
+
+  defp respond_offered(server, "resources/templates/list", _params, _context) do
+    templates = Enum.map(server.resource_templates(), &ResourceTemplate.definition/1)
+    {:result, %{"resourceTemplates" => templates}}
+  end
+
+  defp respond_offered(server, "resources/read", %{"uri" => uri}, context) when is_binary(uri),
+    do: read_resource(server, uri, context)
+
+  defp respond_offered(server, "prompts/list", _params, _context),
+    do: {:result, %{"prompts" => Enum.map(server.prompts(), &Prompt.definition/1)}}
+
+  defp respond_offered(server, "prompts/get", %{"name" => name} = params, context),
+    do: get_prompt(server, name, params["arguments"] || %{}, context)
+
+  defp respond_offered(_server, _method, _params, _context),
+    do: {:error, @invalid_params, "Invalid params"}
 
   defp call_tool(server, tool, arguments, context) do
     metadata = %{tool: tool.name, client_name: context.client_name}
@@ -258,18 +285,12 @@ defmodule AriadnaMCP.Protocol do
     end
   end
 
-  defp tool_content(_server, %Tool{output: nil}, result),
-    do: {:ok, %{"content" => [text_block(result)], "isError" => false}}
+  defp tool_content(_server, %Tool{output: nil}, result), do: {:ok, tool_result(result, false)}
 
   defp tool_content(server, %Tool{output: output} = tool, result) do
     case Schema.project(output, result) do
       {:ok, projected} ->
-        {:ok,
-         %{
-           "content" => [%{"type" => "text", "text" => Jason.encode!(projected)}],
-           "structuredContent" => projected,
-           "isError" => false
-         }}
+        {:ok, tool_result(projected, false)}
 
       {:error, reason} ->
         server.report_exception(
@@ -302,7 +323,7 @@ defmodule AriadnaMCP.Protocol do
           {:result, %{"contents" => [contents]}}
         else
           nil -> {:error, @resource_not_found, "Unknown resource URI: #{uri}"}
-          {:error, message} -> {:error, @resource_not_found, to_string(message)}
+          {:error, reason} -> {:error, @resource_not_found, error_message(reason)}
         end
 
       emit_stop(server, :resource_read, started_at, Map.put(metadata, :status, status(result)))
@@ -331,9 +352,13 @@ defmodule AriadnaMCP.Protocol do
        }}
     else
       nil -> {:error, @invalid_params, "Unknown prompt #{name}"}
-      {:error, message} -> {:error, @invalid_params, message}
+      {:error, reason} -> {:error, @invalid_params, error_message(reason)}
     end
   end
+
+  # Listing is not an access attempt: nothing is audited.
+  defp permitted?(_server, _context, nil), do: true
+  defp permitted?(server, context, scope), do: server.authorize(context, scope) == :ok
 
   defp authorize(_server, _context, nil, _subject), do: :ok
 
@@ -395,11 +420,23 @@ defmodule AriadnaMCP.Protocol do
   @doc false
   def parse_error, do: {400, error_response(nil, @parse_error, "Parse error")}
 
-  defp text_block(result) when is_binary(result), do: %{"type" => "text", "text" => result}
-  defp text_block(result), do: %{"type" => "text", "text" => Jason.encode!(result)}
+  # An object travels as structuredContent and, for older clients, as its JSON
+  # text; anything else as text only.
+  defp tool_result(value, is_error) when is_map(value),
+    do: %{"content" => [text_block(value)], "structuredContent" => value, "isError" => is_error}
 
-  defp tool_error(message),
-    do: %{"content" => [%{"type" => "text", "text" => to_string(message)}], "isError" => true}
+  defp tool_result(value, is_error),
+    do: %{"content" => [text_block(value)], "isError" => is_error}
+
+  defp text_block(value) when is_binary(value), do: %{"type" => "text", "text" => value}
+  defp text_block(value), do: %{"type" => "text", "text" => Jason.encode!(value)}
+
+  defp tool_error(reason) when is_map(reason), do: tool_result(reason, true)
+  defp tool_error(reason), do: tool_result(to_string(reason), true)
+
+  # A JSON-RPC error message is a string.
+  defp error_message(reason) when is_map(reason), do: Jason.encode!(reason)
+  defp error_message(reason), do: to_string(reason)
 
   defp status({:result, %{"isError" => true}}), do: :error
   defp status({:result, _result}), do: :ok

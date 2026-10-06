@@ -48,6 +48,16 @@ defmodule AriadnaMCP.TestServer do
         handler: fn _arguments, _context -> {:error, "not today"} end
       },
       %Tool{
+        name: "fails_structured",
+        description: "Returns a domain error with detail",
+        handler: fn _arguments, _context -> {:error, %{error: "invalid_quarter", quarter: 8}} end
+      },
+      %Tool{
+        name: "unschemed",
+        description: "Returns an object without an output schema",
+        handler: fn _arguments, _context -> {:ok, %{count: 2, items: ["a", "b"]}} end
+      },
+      %Tool{
         name: "boom",
         description: "Raises",
         handler: fn _arguments, _context -> raise "kaboom" end

@@ -10,7 +10,7 @@ defmodule AriadnaMCP.JidoActionTest do
   defp tool(name),
     do:
       JidoServer
-      |> result!("tools/list")
+      |> result!("tools/list", %{}, client: @reader)
       |> Map.fetch!("tools")
       |> Enum.find(&(&1["name"] == name))
 
