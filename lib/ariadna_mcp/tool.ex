@@ -7,7 +7,10 @@ defmodule AriadnaMCP.Tool do
       validated arguments and the `AriadnaMCP.Context`; it returns
       `{:ok, result}` or `{:error, reason}`. An object result or reason
       reaches the client as `structuredContent` and as its JSON text; a
-      string as text only.
+      string as text only. A tool without `:output` may answer
+      `{:ok, {:content, blocks}}` to send its own MCP content blocks as they
+      are. An exception or an exit inside the handler is reported to the
+      server and answered as a tool error.
     * `:scope` is passed to the server's `c:AriadnaMCP.Server.authorize/2`; `nil`
       means no authorization check.
     * `:write` marks tools that change data: they are served only when the
@@ -31,7 +34,7 @@ defmodule AriadnaMCP.Tool do
   ]
 
   @type handler :: {module(), atom()} | (map(), AriadnaMCP.Context.t() -> result())
-  @type result :: {:ok, term()} | {:error, String.t() | map()}
+  @type result :: {:ok, term() | {:content, [map()]}} | {:error, String.t() | map()}
   @type t :: %__MODULE__{
           name: String.t(),
           title: String.t() | nil,

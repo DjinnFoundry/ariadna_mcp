@@ -74,7 +74,10 @@ defmodule AriadnaMCP.Server do
   @callback audit(event :: atom(), subject :: String.t(), Context.t(), metadata :: map()) ::
               term()
 
-  @doc "Reports an unexpected exception raised by a handler."
+  @doc """
+  Reports an unexpected exception raised by a handler. An exit arrives as
+  `%ErlangError{original: {:exit, reason}}`.
+  """
   @callback report_exception(Exception.t(), Exception.stacktrace(), metadata :: map()) :: term()
 
   @doc "Prefix for telemetry events. Default: `[:ariadna_mcp]`."

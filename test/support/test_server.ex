@@ -58,6 +58,33 @@ defmodule AriadnaMCP.TestServer do
         handler: fn _arguments, _context -> {:ok, %{count: 2, items: ["a", "b"]}} end
       },
       %Tool{
+        name: "two_texts",
+        description: "Answers with its own content blocks",
+        handler: fn _arguments, _context ->
+          {:ok,
+           {:content,
+            [%{"type" => "text", "text" => "AVISO"}, %{"type" => "text", "text" => "{}"}]}}
+        end
+      },
+      %Tool{
+        name: "raw_schema",
+        description: "Publishes a JSON Schema as it is",
+        input:
+          {AriadnaMCP.Schema.JSON,
+           %{
+             "type" => "object",
+             "properties" => %{"dia" => %{"type" => "string"}},
+             "required" => ["dia"],
+             "additionalProperties" => false
+           }},
+        handler: fn arguments, _context -> {:ok, %{received: arguments}} end
+      },
+      %Tool{
+        name: "exits",
+        description: "Exits, as a call that times out does",
+        handler: fn _arguments, _context -> exit(:timeout) end
+      },
+      %Tool{
         name: "boom",
         description: "Raises",
         handler: fn _arguments, _context -> raise "kaboom" end
@@ -128,6 +155,7 @@ defmodule AriadnaMCP.TestServer do
 
   @impl true
   def read_resource("note://missing", _context), do: {:error, "note not found"}
+  def read_resource("note://exit", _context), do: exit(:timeout)
   def read_resource("note://" <> id, _context), do: {:ok, %{id: id, text: "hello"}}
 
   @impl true

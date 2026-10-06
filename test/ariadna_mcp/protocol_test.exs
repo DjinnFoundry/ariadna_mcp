@@ -242,6 +242,44 @@ defmodule AriadnaMCP.ProtocolTest do
       assert result["isError"] == false
     end
 
+    test "content blocks a handler returns go out as they are, without structuredContent" do
+      result = call_tool!(TestServer, "two_texts")
+
+      assert result["content"] == [
+               %{"type" => "text", "text" => "AVISO"},
+               %{"type" => "text", "text" => "{}"}
+             ]
+
+      assert result["isError"] == false
+      refute Map.has_key?(result, "structuredContent")
+    end
+
+    test "a JSON Schema adapter publishes the schema as it is and passes arguments through" do
+      tool =
+        TestServer
+        |> result!("tools/list")
+        |> Map.fetch!("tools")
+        |> Enum.find(&(&1["name"] == "raw_schema"))
+
+      assert tool["inputSchema"] == %{
+               "type" => "object",
+               "properties" => %{"dia" => %{"type" => "string"}},
+               "required" => ["dia"],
+               "additionalProperties" => false
+             }
+
+      # The product validates: even an argument the schema does not declare arrives.
+      assert %{"structuredContent" => %{"received" => %{"dia" => 7, "extra" => true}}} =
+               call_tool!(TestServer, "raw_schema", %{"dia" => 7, "extra" => true})
+    end
+
+    test "an exit inside a tool is a reported tool error" do
+      assert %{"isError" => true, "content" => [%{"text" => "internal_error"}]} =
+               call_tool!(TestServer, "exits")
+
+      assert_received {:exception, _message, %{context: "mcp_tool", tool: "exits"}}
+    end
+
     test "a structured error is returned as structuredContent with isError" do
       result = call_tool!(TestServer, "fails_structured")
 
@@ -362,7 +400,8 @@ defmodule AriadnaMCP.ProtocolTest do
       for {uri, client} <- [
             {"note://7", %{name: "nobody", scopes: []}},
             {"other://1", @reader},
-            {"note://missing", @reader}
+            {"note://missing", @reader},
+            {"note://exit", @reader}
           ] do
         assert {200, %{"error" => %{"code" => -32_002}}} =
                  call(TestServer, request("resources/read", %{"uri" => uri}), client: client),

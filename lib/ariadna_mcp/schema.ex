@@ -2,7 +2,8 @@ defmodule AriadnaMCP.Schema do
   @moduledoc """
   Tool schemas in [Peri](https://hexdocs.pm/peri) format. Peri is an optional
   dependency: add `{:peri, "~> 0.9.0"}` to use it, or give every tool an
-  adapter schema (`AriadnaMCP.JidoAction`, or your own
+  adapter schema (`AriadnaMCP.JidoAction`, `AriadnaMCP.Schema.JSON` for a
+  JSON Schema the product validates itself, or your own
   `AriadnaMCP.Schema.Adapter`).
 
   One Peri schema serves three purposes: it is advertised to clients as JSON

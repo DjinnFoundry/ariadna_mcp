@@ -257,13 +257,19 @@ defmodule AriadnaMCP.Protocol do
       emit_stop(server, :tool_call, started_at, Map.put(metadata, :status, status(result)))
       result
     rescue
-      exception ->
-        emit_exception(server, :tool_call, started_at, metadata, exception, __STACKTRACE__)
-
-        server.report_exception(exception, __STACKTRACE__, %{context: "mcp_tool", tool: tool.name})
-
-        {:result, tool_error("internal_error")}
+      exception -> tool_failed(server, tool, metadata, started_at, exception, __STACKTRACE__)
+    catch
+      # An exit, such as a call that times out inside the tool.
+      :exit, reason ->
+        exception = %ErlangError{original: {:exit, reason}}
+        tool_failed(server, tool, metadata, started_at, exception, __STACKTRACE__)
     end
+  end
+
+  defp tool_failed(server, tool, metadata, started_at, exception, stacktrace) do
+    emit_exception(server, :tool_call, started_at, metadata, exception, stacktrace)
+    server.report_exception(exception, stacktrace, %{context: "mcp_tool", tool: tool.name})
+    {:result, tool_error("internal_error")}
   end
 
   defp run_tool(server, tool, arguments, context) do
@@ -285,6 +291,9 @@ defmodule AriadnaMCP.Protocol do
       {:error, message} -> {:invalid_arguments, message}
     end
   end
+
+  defp tool_content(_server, %Tool{output: nil}, {:content, blocks}) when is_list(blocks),
+    do: {:ok, %{"content" => blocks, "isError" => false}}
 
   defp tool_content(_server, %Tool{output: nil}, result), do: {:ok, tool_result(result, false)}
 
@@ -330,11 +339,18 @@ defmodule AriadnaMCP.Protocol do
       emit_stop(server, :resource_read, started_at, Map.put(metadata, :status, status(result)))
       result
     rescue
-      exception ->
-        emit_exception(server, :resource_read, started_at, metadata, exception, __STACKTRACE__)
-        server.report_exception(exception, __STACKTRACE__, %{context: "mcp_resource", uri: uri})
-        {:error, @resource_not_found, "internal_error"}
+      exception -> read_failed(server, uri, metadata, started_at, exception, __STACKTRACE__)
+    catch
+      :exit, reason ->
+        exception = %ErlangError{original: {:exit, reason}}
+        read_failed(server, uri, metadata, started_at, exception, __STACKTRACE__)
     end
+  end
+
+  defp read_failed(server, uri, metadata, started_at, exception, stacktrace) do
+    emit_exception(server, :resource_read, started_at, metadata, exception, stacktrace)
+    server.report_exception(exception, stacktrace, %{context: "mcp_resource", uri: uri})
+    {:error, @resource_not_found, "internal_error"}
   end
 
   defp get_prompt(server, name, arguments, context) do
