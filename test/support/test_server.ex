@@ -63,6 +63,11 @@ defmodule AriadnaMCP.TestServer do
         handler: fn _arguments, _context -> raise "kaboom" end
       },
       %Tool{
+        name: "badarg",
+        description: "Fails in a BIF, which keeps its arguments in the stacktrace",
+        handler: fn _arguments, _context -> :erlang.binary_to_integer(secret()) end
+      },
+      %Tool{
         name: "bad_output",
         description: "Returns a result that breaks its output schema",
         output: nullable(%{"count" => :integer}),
@@ -73,9 +78,18 @@ defmodule AriadnaMCP.TestServer do
         description: "Reports progress",
         input: object(%{"steps" => integer("Steps")}),
         handler: {__MODULE__, :slow}
+      },
+      %Tool{
+        name: "slow_write",
+        description: "Reports progress while it writes",
+        write: true,
+        input: object(%{"steps" => integer("Steps")}),
+        handler: {__MODULE__, :slow}
       }
     ]
   end
+
+  def secret, do: Application.get_env(:ariadna_mcp, :secret, "secret-argument")
 
   def echo(%{"text" => text} = arguments, _context) do
     {:ok, %{note: %{text: text, times: arguments["times"] || 1, secret: "hidden"}, extra: true}}

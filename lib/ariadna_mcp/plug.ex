@@ -10,8 +10,9 @@ defmodule AriadnaMCP.Plug do
 
   Each POST carries one JSON-RPC message and gets one answer: JSON, or an SSE
   stream when a `tools/call` asks for progress (a `progressToken` in `_meta`)
-  and accepts `text/event-stream`. Closing that stream cancels the call. GET
-  and DELETE answer 405: there is no server stream and no session.
+  and accepts `text/event-stream`. Closing that stream cancels a read tool; a
+  write tool always runs to the end, so an effect is never cut off from its
+  record. GET and DELETE answer 405: there is no server stream and no session.
 
   Options:
 
@@ -27,16 +28,22 @@ defmodule AriadnaMCP.Plug do
       `Origin` header: `:same_origin` (default) accepts an origin whose host is
       the request's own `Host`; a list accepts those origins as well; `:any`
       accepts all. Anything else gets 403. Requests without `Origin` pass.
+    * `:streaming` - `false` answers every request as JSON, even when the
+      client asks for progress (default `true`).
     * `:keepalive` - milliseconds between SSE keep-alive comments (15 000).
+    * `:max_body_length` - bytes of an unparsed body the plug reads before it
+      answers 413 (8 000 000). A body `Plug.Parsers` already read is bounded by
+      the parser's own `:length`.
   """
 
   @behaviour Plug
 
   import Plug.Conn
 
-  alias AriadnaMCP.{Context, Protocol}
+  alias AriadnaMCP.{Context, Protocol, Server}
 
   @keepalive 15_000
+  @max_body_length 8_000_000
 
   @impl Plug
   def init(opts) do
@@ -46,14 +53,16 @@ defmodule AriadnaMCP.Plug do
       client_name: Keyword.get(opts, :client_name, &__MODULE__.client_name/1),
       assigns: Keyword.get(opts, :assigns, &__MODULE__.no_assigns/1),
       allowed_origins: Keyword.get(opts, :allowed_origins, :same_origin),
-      keepalive: Keyword.get(opts, :keepalive, @keepalive)
+      streaming: Keyword.get(opts, :streaming, true),
+      keepalive: Keyword.get(opts, :keepalive, @keepalive),
+      max_body_length: Keyword.get(opts, :max_body_length, @max_body_length)
     }
   end
 
   @impl Plug
   def call(%Plug.Conn{method: "POST"} = conn, opts) do
     with :ok <- check_origin(conn, opts),
-         {:ok, message, conn} <- read_message(conn) do
+         {:ok, message, conn} <- read_message(conn, opts) do
       serve(conn, message, opts)
     else
       {:reply, status, body, conn} -> send_json(conn, status, body)
@@ -81,7 +90,7 @@ defmodule AriadnaMCP.Plug do
         send_json(conn, status, body)
 
       {:ok, context} ->
-        if stream?(conn, message, context) do
+        if opts.streaming and stream?(conn, message, context) do
           stream(conn, message, context, opts)
         else
           {status, body} = Protocol.dispatch(opts.server, message, context)
@@ -119,10 +128,17 @@ defmodule AriadnaMCP.Plug do
       |> put_resp_header("x-accel-buffering", "no")
       |> send_chunked(200)
 
-    relay(conn, task, tag, opts.keepalive)
+    tool = Server.served_tool(opts.server, get_in(message, ["params", "name"]))
+
+    relay(conn, %{
+      task: task,
+      tag: tag,
+      keepalive: opts.keepalive,
+      cancellable: not match?(%{write: true}, tool)
+    })
   end
 
-  defp relay(conn, task, tag, keepalive) do
+  defp relay(conn, %{task: task, tag: tag} = stream) do
     receive do
       {^tag, :progress, params} ->
         notification = %{
@@ -131,7 +147,7 @@ defmodule AriadnaMCP.Plug do
           "params" => params
         }
 
-        continue(conn, task, tag, keepalive, sse_event(notification))
+        continue(conn, stream, sse_event(notification))
 
       {ref, {_status, body}} when ref == task.ref ->
         Process.demonitor(ref, [:flush])
@@ -141,18 +157,23 @@ defmodule AriadnaMCP.Plug do
           {:error, _closed} -> conn
         end
     after
-      keepalive -> continue(conn, task, tag, keepalive, ":\n\n")
+      stream.keepalive -> continue(conn, stream, ":\n\n")
     end
   end
 
-  # A failed write means the client closed the stream: that is the cancellation.
-  defp continue(conn, task, tag, keepalive, data) do
+  # A failed write means the client closed the stream: that cancels a read
+  # tool. A write tool runs to the end and its answer goes nowhere.
+  defp continue(conn, stream, data) do
     case chunk(conn, data) do
       {:ok, conn} ->
-        relay(conn, task, tag, keepalive)
+        relay(conn, stream)
+
+      {:error, _reason} when stream.cancellable ->
+        Task.shutdown(stream.task, :brutal_kill)
+        conn
 
       {:error, _reason} ->
-        Task.shutdown(task, :brutal_kill)
+        Task.await(stream.task, :infinity)
         conn
     end
   end
@@ -190,19 +211,37 @@ defmodule AriadnaMCP.Plug do
     {:reply, 403, body, conn}
   end
 
-  defp read_message(%Plug.Conn{body_params: %Plug.Conn.Unfetched{}} = conn) do
-    {:ok, body, conn} = read_body(conn)
-
-    case Jason.decode(body) do
-      {:ok, message} -> {:ok, message, conn}
+  defp read_message(%Plug.Conn{body_params: %Plug.Conn.Unfetched{}} = conn, opts) do
+    case read_body(conn, length: opts.max_body_length) do
+      {:ok, body, conn} -> decode(body, conn)
+      {:more, _partial, conn} -> too_large(conn)
       {:error, _reason} -> parse_error(conn)
     end
   end
 
   # Plug.Parsers wraps a top-level JSON array (a batch) under "_json"; batches
   # are not part of the protocol and come back as Invalid Request.
-  defp read_message(%Plug.Conn{body_params: %{"_json" => batch}} = conn), do: {:ok, batch, conn}
-  defp read_message(%Plug.Conn{body_params: params} = conn), do: {:ok, params, conn}
+  defp read_message(%Plug.Conn{body_params: %{"_json" => batch}} = conn, _opts),
+    do: {:ok, batch, conn}
+
+  defp read_message(%Plug.Conn{body_params: params} = conn, _opts), do: {:ok, params, conn}
+
+  defp decode(body, conn) do
+    case Jason.decode(body) do
+      {:ok, message} -> {:ok, message, conn}
+      {:error, _reason} -> parse_error(conn)
+    end
+  end
+
+  defp too_large(conn) do
+    body = %{
+      "jsonrpc" => "2.0",
+      "id" => nil,
+      "error" => %{"code" => -32_600, "message" => "Request too large"}
+    }
+
+    {:reply, 413, body, conn}
+  end
 
   defp parse_error(conn) do
     {status, body} = Protocol.parse_error()

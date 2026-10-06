@@ -327,6 +327,16 @@ defmodule AriadnaMCP.ProtocolTest do
 
       call_tool!(TestServer, "boom")
       assert_received {:telemetry, [:test_mcp, :tool_call, :exception], _, %{kind: :error}}
+
+      call_tool!(TestServer, "badarg")
+
+      assert_received {:telemetry, [:test_mcp, :tool_call, :exception], _,
+                       %{stacktrace: stacktrace}}
+
+      refute inspect(stacktrace) =~ "secret-argument"
+
+      # Frames keep their arity, never the arguments a call carried.
+      assert Enum.all?(stacktrace, fn {_m, _f, arity, _location} -> is_integer(arity) end)
     end
   end
 
@@ -439,6 +449,12 @@ defmodule AriadnaMCP.ProtocolTest do
 
       assert {200, %{"error" => %{"code" => -32_602}}} =
                call(TestServer, request("tools/call", %{}))
+
+      for method <- ~w(tools/call prompts/get) do
+        assert {200, %{"error" => %{"code" => -32_602, "message" => "Invalid params"}}} =
+                 call(TestServer, request(method, %{"name" => %{"a" => 1}}), client: @reader),
+               method
+      end
     end
   end
 end

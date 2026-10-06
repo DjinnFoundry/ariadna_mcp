@@ -177,6 +177,18 @@ defmodule AriadnaMCP.PlugTest do
     assert Jason.decode!(final) == %{"done" => 2}
   end
 
+  test "streams the protocol error of an unknown tool" do
+    message = modern("tools/call", %{"name" => "missing"}, %{"progressToken" => "p1"})
+
+    headers =
+      modern_headers("tools/call", "missing") ++ [{"accept", "text/event-stream"}]
+
+    conn = post_message(message, headers)
+
+    assert ["event: message\ndata: " <> json] = String.split(conn.resp_body, "\n\n", trim: true)
+    assert %{"error" => %{"code" => -32_602}} = Jason.decode!(json)
+  end
+
   test "answers JSON when the client does not accept SSE, even with a progress token" do
     message =
       modern("tools/call", %{"name" => "slow", "arguments" => %{"steps" => 1}}, %{
@@ -189,12 +201,12 @@ defmodule AriadnaMCP.PlugTest do
     assert %{"result" => %{"isError" => false}} = Jason.decode!(conn.resp_body)
   end
 
-  test "closing the stream cancels the call" do
+  defp call_and_close(tool, steps) do
     Application.put_env(:ariadna_mcp, :slow_sleep, 50)
     on_exit(fn -> Application.delete_env(:ariadna_mcp, :slow_sleep) end)
 
     message =
-      modern("tools/call", %{"name" => "slow", "arguments" => %{"steps" => 5}}, %{
+      modern("tools/call", %{"name" => tool, "arguments" => %{"steps" => steps}}, %{
         "progressToken" => "p1"
       })
 
@@ -203,16 +215,56 @@ defmodule AriadnaMCP.PlugTest do
     |> put_req_header("content-type", "application/json")
     |> put_req_header("accept", "text/event-stream")
     |> then(fn conn ->
-      Enum.reduce(modern_headers("tools/call", "slow"), conn, fn {k, v}, acc ->
+      Enum.reduce(modern_headers("tools/call", tool), conn, fn {k, v}, acc ->
         put_req_header(acc, k, v)
       end)
     end)
     |> assign(:current_client, @reader)
     |> AriadnaMCP.Plug.call(@opts)
+  end
+
+  test "closing the stream cancels a read tool" do
+    call_and_close("slow", 5)
 
     assert_received {:slow_step, 1}
     Process.sleep(300)
     refute_received :slow_done
     refute_received {:slow_step, 5}
+  end
+
+  test "closing the stream never cuts a write tool short: it runs to the end" do
+    Application.put_env(:ariadna_mcp, :enabled_write_tools, ["slow_write"])
+    on_exit(fn -> Application.delete_env(:ariadna_mcp, :enabled_write_tools) end)
+
+    call_and_close("slow_write", 3)
+
+    assert_received {:slow_step, 3}
+    assert_received :slow_done
+  end
+
+  test "streaming: false answers JSON even when the client asks for SSE" do
+    message =
+      modern("tools/call", %{"name" => "slow", "arguments" => %{"steps" => 1}}, %{
+        "progressToken" => "p1"
+      })
+
+    headers =
+      modern_headers("tools/call", "slow") ++ [{"accept", "application/json, text/event-stream"}]
+
+    conn =
+      post_message(message, headers, AriadnaMCP.Plug.init(server: TestServer, streaming: false))
+
+    assert ["application/json" <> _] = get_resp_header(conn, "content-type")
+    assert %{"result" => %{"isError" => false}} = Jason.decode!(conn.resp_body)
+  end
+
+  test "a body longer than the limit answers 413 without reading the rest" do
+    opts = AriadnaMCP.Plug.init(server: TestServer, max_body_length: 16)
+    conn = conn(:post, "/mcp", String.duplicate("x", 64)) |> AriadnaMCP.Plug.call(opts)
+
+    assert conn.status == 413
+
+    assert %{"error" => %{"code" => -32_600, "message" => "Request too large"}} =
+             Jason.decode!(conn.resp_body)
   end
 end

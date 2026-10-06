@@ -206,7 +206,7 @@ defmodule AriadnaMCP.Protocol do
     {:result, %{"tools" => tools}}
   end
 
-  defp respond(server, "tools/call", %{"name" => name} = params, context) do
+  defp respond(server, "tools/call", %{"name" => name} = params, context) when is_binary(name) do
     case Server.served_tool(server, name) do
       nil -> {:error, @invalid_params, "Tool not found: #{name}"}
       tool -> call_tool(server, tool, params["arguments"] || %{}, context)
@@ -241,8 +241,9 @@ defmodule AriadnaMCP.Protocol do
   defp respond_offered(server, "prompts/list", _params, _context),
     do: {:result, %{"prompts" => Enum.map(server.prompts(), &Prompt.definition/1)}}
 
-  defp respond_offered(server, "prompts/get", %{"name" => name} = params, context),
-    do: get_prompt(server, name, params["arguments"] || %{}, context)
+  defp respond_offered(server, "prompts/get", %{"name" => name} = params, context)
+       when is_binary(name),
+       do: get_prompt(server, name, params["arguments"] || %{}, context)
 
   defp respond_offered(_server, _method, _params, _context),
     do: {:error, @invalid_params, "Invalid params"}
@@ -481,7 +482,23 @@ defmodule AriadnaMCP.Protocol do
     :telemetry.execute(
       server.telemetry_prefix() ++ [operation, :exception],
       %{duration: System.monotonic_time() - started_at},
-      Map.merge(metadata, %{kind: :error, reason: exception, stacktrace: stacktrace})
+      Map.merge(metadata, %{
+        kind: :error,
+        reason: exception,
+        stacktrace: without_arguments(stacktrace)
+      })
     )
+  end
+
+  # Some errors leave the arguments of the raising call in its frame; they may
+  # hold whatever the client sent, so telemetry gets the arity instead.
+  defp without_arguments(stacktrace) do
+    Enum.map(stacktrace, fn
+      {module, function, arguments, location} when is_list(arguments) ->
+        {module, function, length(arguments), location}
+
+      frame ->
+        frame
+    end)
   end
 end
