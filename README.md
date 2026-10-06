@@ -11,15 +11,18 @@ eras of the specification:
 - **2025-03-26 to 2025-11-25** (legacy): `initialize`, then requests answered
   one by one, without a session.
 
-What a product writes: a server module (`AriadnaMCP.Server`), tools with Peri
-schemas (`AriadnaMCP.Tool`, `AriadnaMCP.Schema`) and a route to
-`AriadnaMCP.Plug` behind its own authentication. What it gets:
+What a product writes: a server module (`AriadnaMCP.Server`), tools
+(`AriadnaMCP.Tool`) and a route to `AriadnaMCP.Plug` behind its own
+authentication. Tools are `Jido.Action` modules (`AriadnaMCP.JidoAction`), or
+carry their schema through an `AriadnaMCP.Schema.Adapter`, or use Peri schemas
+(`AriadnaMCP.Schema`, optional `:peri` dependency). What it gets:
 
 - argument validation against the advertised input schema;
 - results projected onto the output schema (an allowlist of fields) and
   returned as `structuredContent`;
 - write tools served only when the server enables them;
-- per-scope authorization, audit and telemetry hooks;
+- per-scope authorization, with `tools/list` showing each client only what it
+  may call, plus audit and telemetry hooks;
 - progress over a request-scoped SSE stream, where closing the stream cancels
   the call;
 - `AriadnaMCP.Testing` to drive a server like a client, including a `tools/list`

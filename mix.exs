@@ -1,7 +1,7 @@
 defmodule AriadnaMCP.MixProject do
   use Mix.Project
 
-  @version "0.3.0"
+  @version "0.3.1"
   @source_url "https://github.com/DjinnFoundry/ariadna_mcp"
 
   def project do
@@ -28,7 +28,7 @@ defmodule AriadnaMCP.MixProject do
 
   defp deps do
     [
-      {:peri, "~> 0.9.0"},
+      {:peri, "~> 0.9.0", optional: true},
       {:plug, "~> 1.16"},
       {:jason, "~> 1.4"},
       {:telemetry, "~> 1.2"},

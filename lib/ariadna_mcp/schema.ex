@@ -1,6 +1,9 @@
 defmodule AriadnaMCP.Schema do
   @moduledoc """
-  Tool schemas in [Peri](https://hexdocs.pm/peri) format.
+  Tool schemas in [Peri](https://hexdocs.pm/peri) format. Peri is an optional
+  dependency: add `{:peri, "~> 0.9.0"}` to use it, or give every tool an
+  adapter schema (`AriadnaMCP.JidoAction`, or your own
+  `AriadnaMCP.Schema.Adapter`).
 
   One Peri schema serves three purposes: it is advertised to clients as JSON
   Schema, it validates arguments (dropping every undeclared key, so a tool must
@@ -80,23 +83,19 @@ defmodule AriadnaMCP.Schema do
   defp nullable_type({:list, item}), do: {:list, nullable_type(item)}
   defp nullable_type(type), do: type
 
-  @doc "The JSON Schema advertised for a Peri schema."
+  @doc "The JSON Schema advertised for a schema."
   @spec to_json_schema(t()) :: map()
   def to_json_schema({adapter, schema}) when is_atom(adapter), do: adapter.to_json_schema(schema)
-  def to_json_schema(schema), do: Peri.to_json_schema(schema)
+  def to_json_schema(schema) when schema == %{}, do: %{"type" => "object", "properties" => %{}}
+  def to_json_schema(schema), do: peri_json_schema(schema)
 
   @doc "Validates arguments, returning only the declared keys."
   @spec validate(t(), map()) :: {:ok, map()} | {:error, String.t()}
   def validate({adapter, schema}, arguments) when is_atom(adapter) and is_map(arguments),
     do: adapter.validate(schema, arguments)
 
-  def validate(schema, arguments) when is_map(arguments) do
-    case Peri.validate(schema, arguments) do
-      {:ok, valid} -> {:ok, valid}
-      {:error, errors} -> {:error, format_errors(errors)}
-    end
-  end
-
+  def validate(schema, arguments) when schema == %{} and is_map(arguments), do: {:ok, %{}}
+  def validate(schema, arguments) when is_map(arguments), do: peri_validate(schema, arguments)
   def validate(_schema, _arguments), do: {:error, "arguments must be an object"}
 
   @doc """
@@ -107,24 +106,36 @@ defmodule AriadnaMCP.Schema do
   def project({adapter, schema}, result) when is_atom(adapter),
     do: adapter.project(schema, result)
 
-  def project(schema, result) do
-    json = result |> Jason.encode!() |> Jason.decode!()
+  def project(schema, result),
+    do: peri_validate(schema, result |> Jason.encode!() |> Jason.decode!())
 
-    case Peri.validate(schema, json) do
-      {:ok, projected} -> {:ok, projected}
-      {:error, errors} -> {:error, format_errors(errors)}
+  # Peri is optional: a server whose tools all use an adapter (such as
+  # `AriadnaMCP.JidoAction`) or take no arguments does not need it.
+  if Code.ensure_loaded?(Peri) do
+    defp peri_json_schema(schema), do: Peri.to_json_schema(schema)
+
+    defp peri_validate(schema, data) do
+      case Peri.validate(schema, data) do
+        {:ok, valid} -> {:ok, valid}
+        {:error, errors} -> {:error, format_errors(errors)}
+      end
     end
+
+    defp format_errors(errors) when is_list(errors),
+      do: Enum.map_join(errors, "; ", &format_error/1)
+
+    defp format_errors(error), do: format_error(error)
+
+    defp format_error(%Peri.Error{path: path, message: message}),
+      do: "#{Enum.join(path, ".")}: #{message}"
+
+    defp format_error(other), do: inspect(other)
+  else
+    @peri_missing "a Peri tool schema needs the optional dependency {:peri, \"~> 0.9.0\"}"
+
+    defp peri_json_schema(_schema), do: raise(ArgumentError, @peri_missing)
+    defp peri_validate(_schema, _data), do: raise(ArgumentError, @peri_missing)
   end
 
   defp described(type, description), do: {:meta, type, description: description}
-
-  defp format_errors(errors) when is_list(errors),
-    do: Enum.map_join(errors, "; ", &format_error/1)
-
-  defp format_errors(error), do: format_error(error)
-
-  defp format_error(%Peri.Error{path: path, message: message}),
-    do: "#{Enum.join(path, ".")}: #{message}"
-
-  defp format_error(other), do: inspect(other)
 end
