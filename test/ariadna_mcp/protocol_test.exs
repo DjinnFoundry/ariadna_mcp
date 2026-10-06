@@ -445,6 +445,89 @@ defmodule AriadnaMCP.ProtocolTest do
     end
   end
 
+  describe "a server that shapes its internal error" do
+    defmodule ShapedErrors do
+      @moduledoc false
+      use AriadnaMCP.Server
+
+      alias AriadnaMCP.TestServer
+
+      @impl true
+      def info, do: TestServer.info()
+      @impl true
+      def tools, do: TestServer.tools()
+      @impl true
+      def authorize(context, scope), do: TestServer.authorize(context, scope)
+      @impl true
+      def resource_templates, do: TestServer.resource_templates()
+      @impl true
+      def resource_scope(uri), do: TestServer.resource_scope(uri)
+      @impl true
+      def read_resource(uri, context), do: TestServer.read_resource(uri, context)
+      @impl true
+      def report_exception(exception, stacktrace, metadata),
+        do: TestServer.report_exception(exception, stacktrace, metadata)
+
+      @impl true
+      def internal_error, do: %{"error" => "operation_failed"}
+    end
+
+    defmodule ShapedText do
+      @moduledoc false
+      use AriadnaMCP.Server
+
+      alias AriadnaMCP.TestServer
+
+      @impl true
+      def info, do: TestServer.info()
+      @impl true
+      def tools, do: TestServer.tools()
+      @impl true
+      def authorize(context, scope), do: TestServer.authorize(context, scope)
+      @impl true
+      def report_exception(exception, stacktrace, metadata),
+        do: TestServer.report_exception(exception, stacktrace, metadata)
+
+      @impl true
+      def internal_error, do: "Error interno: no se ha podido contestar."
+    end
+
+    test "answers a raise, an exit and a broken output with its own structured error" do
+      for name <- ~w(boom exits bad_output) do
+        result = call_tool!(ShapedErrors, name)
+
+        assert result["isError"] == true, name
+        assert result["structuredContent"] == %{"error" => "operation_failed"}, name
+        assert Jason.decode!(hd(result["content"])["text"]) == %{"error" => "operation_failed"}
+      end
+
+      assert_received {:exception, "kaboom", %{tool: "boom"}}
+      assert_received {:exception, _message, %{tool: "exits"}}
+      assert_received {:exception, "MCP tool result does not match its output schema" <> _, _}
+    end
+
+    test "answers with its own text when the error is a string" do
+      assert %{
+               "isError" => true,
+               "content" => [%{"text" => "Error interno: no se ha podido contestar."}]
+             } = result = call_tool!(ShapedText, "exits")
+
+      refute Map.has_key?(result, "structuredContent")
+    end
+
+    test "keeps a domain error as the tool answered it" do
+      assert %{"isError" => true, "content" => [%{"text" => "not today"}]} =
+               call_tool!(ShapedErrors, "fails")
+    end
+
+    test "keeps the JSON-RPC error of a resource that fails" do
+      assert {200, %{"error" => %{"code" => -32_002, "message" => "internal_error"}}} =
+               call(ShapedErrors, request("resources/read", %{"uri" => "note://exit"}),
+                 client: @reader
+               )
+    end
+  end
+
   describe "a server without prompts or resources" do
     defmodule ToolsOnly do
       @moduledoc false

@@ -80,6 +80,15 @@ defmodule AriadnaMCP.Server do
   """
   @callback report_exception(Exception.t(), Exception.stacktrace(), metadata :: map()) :: term()
 
+  @doc """
+  The tool error answered when a tool raises, exits or returns a result that
+  breaks its output schema, after `c:report_exception/3`. It goes out like
+  `{:error, reason}`: a map as `structuredContent` with `isError`, a string as
+  text. Default: `"internal_error"`. A failed `resources/read` keeps its
+  JSON-RPC error.
+  """
+  @callback internal_error() :: String.t() | map()
+
   @doc "Prefix for telemetry events. Default: `[:ariadna_mcp]`."
   @callback telemetry_prefix() :: [atom()]
 
@@ -119,6 +128,9 @@ defmodule AriadnaMCP.Server do
       end
 
       @impl AriadnaMCP.Server
+      def internal_error, do: "internal_error"
+
+      @impl AriadnaMCP.Server
       def telemetry_prefix, do: [:ariadna_mcp]
 
       defoverridable enabled_write_tools: 0,
@@ -129,6 +141,7 @@ defmodule AriadnaMCP.Server do
                      get_prompt: 3,
                      audit: 4,
                      report_exception: 3,
+                     internal_error: 0,
                      telemetry_prefix: 0
     end
   end

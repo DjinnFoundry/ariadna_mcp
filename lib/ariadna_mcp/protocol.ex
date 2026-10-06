@@ -269,7 +269,7 @@ defmodule AriadnaMCP.Protocol do
   defp tool_failed(server, tool, metadata, started_at, exception, stacktrace) do
     emit_exception(server, :tool_call, started_at, metadata, exception, stacktrace)
     server.report_exception(exception, stacktrace, %{context: "mcp_tool", tool: tool.name})
-    {:result, tool_error("internal_error")}
+    {:result, tool_error(server.internal_error())}
   end
 
   defp run_tool(server, tool, arguments, context) do
@@ -309,7 +309,7 @@ defmodule AriadnaMCP.Protocol do
           %{context: "mcp_tool_output", tool: tool.name}
         )
 
-        {:error, "internal_error"}
+        {:error, server.internal_error()}
     end
   end
 

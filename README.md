@@ -66,6 +66,16 @@ scope "/api" do
 end
 ```
 
+A tool that raises, exits or returns a result that breaks its output schema is
+reported through `report_exception/3` and answered with `internal_error/0`,
+`"internal_error"` unless the server defines its own: a map goes out as
+`structuredContent` with `isError`, a string as text.
+
+```elixir
+@impl true
+def internal_error, do: %{"error" => "operation_failed"}
+```
+
 ## Jido actions as tools
 
 With `jido_action` installed, a `Jido.Action` is served as an MCP tool, so one
