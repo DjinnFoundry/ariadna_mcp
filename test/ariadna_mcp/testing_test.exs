@@ -12,6 +12,40 @@ defmodule AriadnaMCP.TestingTest do
     assert snapshot =~ ~s("description": "Echoes a note")
   end
 
+  test "snapshot sorts required lists, which are sets" do
+    assert %{"inputSchema" => %{"required" => ["text"]}} =
+             TestServer
+             |> Testing.snapshot()
+             |> Jason.decode!()
+             |> Enum.find(&(&1["name"] == "echo"))
+
+    defmodule Unordered do
+      @moduledoc false
+      use AriadnaMCP.Server
+      @impl true
+      def info, do: %{name: "U", version: "0"}
+      @impl true
+      def authorize(_context, _scope), do: :ok
+
+      @impl true
+      def tools do
+        input = %{"z" => {:required, :string}, "a" => {:required, :string}}
+
+        [
+          %AriadnaMCP.Tool{
+            name: "t",
+            description: "d",
+            input: input,
+            handler: fn _, _ -> {:ok, %{}} end
+          }
+        ]
+      end
+    end
+
+    assert [%{"inputSchema" => %{"required" => ["a", "z"]}}] =
+             Unordered |> Testing.snapshot() |> Jason.decode!()
+  end
+
   test "undeclared_paths finds fields outside a JSON Schema" do
     schema = %{
       "type" => "object",

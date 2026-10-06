@@ -129,10 +129,15 @@ defmodule AriadnaMCP.Testing do
   defp client_name(%{name: name}), do: to_string(name)
   defp client_name(_client), do: nil
 
+  # JSON Schema's "required" is a set; some schema libraries emit it in map
+  # order, which varies between compilations.
   defp sort_keys(map) when is_map(map) do
     map
     |> Enum.sort_by(&elem(&1, 0))
-    |> Enum.map(fn {key, value} -> {key, sort_keys(value)} end)
+    |> Enum.map(fn
+      {"required", list} when is_list(list) -> {"required", Enum.sort(list)}
+      {key, value} -> {key, sort_keys(value)}
+    end)
     |> Jason.OrderedObject.new()
   end
 
