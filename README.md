@@ -105,5 +105,5 @@ HTTP in both eras.
 
 ## Status
 
-Private, used by Balneario de Cofrentes and DjinnFoundry products. Not yet
-released under an open-source license.
+Used by Balneario de Cofrentes and DjinnFoundry products. The source is public;
+it is not yet released under an open-source license.
