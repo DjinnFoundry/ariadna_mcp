@@ -15,7 +15,24 @@ defmodule AriadnaMCP.MixProject do
       description: "Stateless Model Context Protocol servers for Plug and Phoenix.",
       source_url: @source_url,
       docs: [main: "AriadnaMCP", source_ref: "v#{@version}"],
-      dialyzer: [plt_add_apps: [:mix, :ex_unit], flags: [:error_handling, :underspecs]]
+      dialyzer: [plt_add_apps: [:mix, :ex_unit], flags: [:error_handling, :underspecs]],
+      hex: [ignore_advisories: Enum.map(advisory_exceptions(), & &1.id)]
+    ]
+  end
+
+  # Avisos de `mix hex.audit` aceptados mientras no haya versión arreglada,
+  # cada uno con motivo y fecha de caducidad. Un test falla cuando vence:
+  # o se actualiza el paquete y se quita, o se renueva con motivo nuevo.
+  def advisory_exceptions do
+    [
+      %{
+        id: "EEF-CVE-2026-43966",
+        package: "cowlib",
+        until: ~D[2026-12-05],
+        reason:
+          "Sin versión arreglada publicada; cowlib solo llega en test vía ex_mcp y plug_cowboy, " <>
+            "y nada llama a cow_http_struct_hd ni serializa cabeceras estructuradas con datos de usuario."
+      }
     ]
   end
 
