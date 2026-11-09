@@ -24,16 +24,7 @@ defmodule AriadnaMCP.MixProject do
   # cada uno con motivo y fecha de caducidad. Un test falla cuando vence:
   # o se actualiza el paquete y se quita, o se renueva con motivo nuevo.
   def advisory_exceptions do
-    [
-      %{
-        id: "EEF-CVE-2026-43966",
-        package: "cowlib",
-        until: ~D[2026-12-05],
-        reason:
-          "Sin versión arreglada publicada; cowlib solo llega en test vía ex_mcp y plug_cowboy, " <>
-            "y nada llama a cow_http_struct_hd ni serializa cabeceras estructuradas con datos de usuario."
-      }
-    ]
+    []
   end
 
   def application do
